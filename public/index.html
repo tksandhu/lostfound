@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Campus Lost &amp; Found</title>
+<style>
+:root{--bg:#f7f6f2;--card:#fff;--ink:#1d1d1b;--mute:#6b6a64;--line:#e4e2da;--lost:#c2410c;--lostbg:#ffedd5;--found:#15803d;--foundbg:#dcfce7;--acc:#1d4ed8;--onacc:#fff;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#161615;--card:#222221;--ink:#f1f0ea;--mute:#a09f97;--line:#363633;--lostbg:#431a07;--foundbg:#052e16;--lost:#fdba74;--found:#86efac;--acc:#93b4ff;--onacc:#0b1020;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:960px;margin:0 auto;padding:20px 16px 80px}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+h1{font-size:1.5rem;margin:0}h1 small{display:block;font-size:.85rem;font-weight:400;color:var(--mute)}
+button,input,select,textarea{font:inherit;color:inherit}
+.btn{background:var(--acc);color:var(--onacc);border:0;border-radius:10px;padding:10px 16px;cursor:pointer;font-weight:600}
+.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink)}
+.btn:disabled{opacity:.5}
+.right{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.bar input[type=search]{flex:1;min-width:160px}
+input,select,textarea{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 12px;width:100%}
+.tabs{display:flex;gap:6px}.tab{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:7px 14px;cursor:pointer}
+.tab.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;cursor:pointer}
+.card:hover{border-color:var(--acc)}.card.resolved{opacity:.6}
+.ph{aspect-ratio:4/3;background:var(--line);display:flex;align-items:center;justify-content:center;font-size:2.4rem}
+.ph img{width:100%;height:100%;object-fit:cover}
+.cb{padding:12px 14px}.cb h3{margin:6px 0 2px;font-size:1.05rem}.meta{color:var(--mute);font-size:.88rem}
+.badge{display:inline-block;font-size:.75rem;font-weight:700;padding:2px 9px;border-radius:999px;text-transform:uppercase;letter-spacing:.03em}
+.badge.lost{background:var(--lostbg);color:var(--lost)}.badge.found{background:var(--foundbg);color:var(--found)}.badge.done{background:var(--line);color:var(--mute)}
+.empty{text-align:center;color:var(--mute);padding:48px 0;grid-column:1/-1}
+dialog{border:1px solid var(--line);border-radius:16px;background:var(--card);color:var(--ink);padding:0;width:min(560px,94vw);max-height:90vh}
+dialog::backdrop{background:rgba(0,0,0,.5)}
+.dl{padding:18px;display:flex;flex-direction:column;gap:10px}
+.dl label.t{font-size:.85rem;color:var(--mute);display:block;margin-bottom:3px}
+.row{display:flex;gap:10px}.row>*{flex:1}
+.seg{display:flex;gap:8px}.seg label{flex:1;border:1px solid var(--line);border-radius:10px;padding:9px;text-align:center;cursor:pointer}
+.seg input{display:none}.seg label:has(input:checked){border-color:var(--acc);font-weight:700}
+.prev{max-height:180px;border-radius:10px;object-fit:cover;display:none}
+.big{width:100%;max-height:300px;object-fit:cover;border-radius:12px}
+.msgs{border:1px solid var(--line);border-radius:12px;padding:10px;max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;background:var(--bg)}
+.m{max-width:85%;padding:7px 11px;border-radius:12px;background:var(--card);border:1px solid var(--line);align-self:flex-start;font-size:.95rem;overflow-wrap:anywhere}
+.m.me{align-self:flex-end;background:var(--acc);color:var(--onacc);border-color:var(--acc)}
+.m b{display:block;font-size:.72rem;opacity:.75;font-weight:600}
+.note{font-size:.8rem;color:var(--mute)}.err{color:var(--lost);font-size:.9rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Campus Lost &amp; Found<small>Lost something? Found something? Post it here.</small></h1>
+  <div class="right" id="who"></div>
+</div>
+<div class="bar">
+  <div class="tabs" id="tabs"></div>
+  <input type="search" id="q" placeholder="Search keys, bottle, ID card, library…">
+</div>
+<div id="status" class="note"></div>
+<div class="grid" id="grid"></div>
+</div>
+
+<dialog id="authDlg"><div class="dl">
+  <h2 style="margin:0" id="aTitle">Log in</h2>
+  <div id="nameBox"><label class="t">Your name</label><input id="aName" maxlength="80"></div>
+  <div><label class="t">Email</label><input id="aEmail" type="email" autocomplete="email"></div>
+  <div><label class="t">Password (at least 6 characters)</label><input id="aPw" type="password" autocomplete="current-password"></div>
+  <div class="err" id="aErr"></div>
+  <div class="row"><button class="btn ghost" id="aCancel" type="button">Cancel</button><button class="btn" id="aGo" type="button">Log in</button></div>
+  <button class="btn ghost" id="aSwap" type="button"></button>
+</div></dialog>
+
+<dialog id="postDlg"><div class="dl">
+  <h2 style="margin:0">Post an item</h2>
+  <div class="seg"><label><input type="radio" name="kind" value="lost" checked><span>I lost something</span></label><label><input type="radio" name="kind" value="found"><span>I found something</span></label></div>
+  <div><label class="t">What is it?</label><input id="fTitle" maxlength="80" placeholder="Black water bottle, blue ID card…"></div>
+  <div class="row">
+    <div><label class="t">Category</label><select id="fCat"><option>Bottle / Bag</option><option>ID / Cards</option><option>Electronics</option><option>Keys</option><option>Books / Stationery</option><option>Clothing</option><option>Other</option></select></div>
+    <div><label class="t">Date</label><input type="date" id="fDate"></div>
+  </div>
+  <div><label class="t">Where (building / spot)</label><input id="fPlace" maxlength="80" placeholder="Library, Hostel H, LT-102…"></div>
+  <div><label class="t">Details</label><textarea id="fDesc" rows="3" maxlength="400" placeholder="Colour, brand, marks. For found items, keep one detail back so the owner can prove it’s theirs."></textarea></div>
+  <div><label class="t">Photo (optional, max 5 MB)</label><input type="file" id="fFile" accept="image/*"><img class="prev" id="prev" alt=""></div>
+  <div class="err" id="fErr"></div>
+  <div class="row"><button class="btn ghost" id="cancel" type="button">Cancel</button><button class="btn" id="save" type="button">Post</button></div>
+</div></dialog>
+
+<dialog id="viewDlg"><div class="dl" id="viewBody"></div></dialog>
+
+<script>
+var $=function(id){return document.getElementById(id)};
+function el(t,a,kids){var e=document.createElement(t);for(var k in (a||{})){if(k==="class")e.className=a[k];else if(k==="text")e.textContent=a[k];else e.setAttribute(k,a[k])}(kids||[]).forEach(function(c){if(c)e.appendChild(c)});return e}
+var token=localStorage.getItem("lf_token"),user=null,items=[],filter="all",query="",poll=null,signup=false;
+try{user=JSON.parse(localStorage.getItem("lf_user")||"null")}catch(e){}
+var me=function(){return user?user.id:null};
+
+async function api(path,opt){
+  opt=opt||{};opt.headers=opt.headers||{};
+  if(token)opt.headers.Authorization="Bearer "+token;
+  if(opt.json){opt.headers["Content-Type"]="application/json";opt.body=JSON.stringify(opt.json)}
+  var r=await fetch("/api/"+path,opt),d={};
+  try{d=await r.json()}catch(e){}
+  if(r.status===401&&token&&path!=="login"){logout(true)}
+  if(!r.ok)throw new Error(d.error||"Something went wrong");
+  return d;
+}
+function setSession(d){token=d.token;user=d.user;localStorage.setItem("lf_token",token);localStorage.setItem("lf_user",JSON.stringify(user));renderWho()}
+function logout(silent){token=null;user=null;localStorage.removeItem("lf_token");localStorage.removeItem("lf_user");renderWho();if(!silent)load()}
+
+function renderWho(){
+  var w=$("who");w.textContent="";
+  if(user){
+    w.appendChild(el("span",{class:"note",text:"Hi, "+user.name}));
+    var o=el("button",{class:"btn ghost",text:"Log out"});o.onclick=function(){logout()};w.appendChild(o);
+    var n=el("button",{class:"btn",text:"+ Post an item"});n.onclick=openPost;w.appendChild(n);
+  }else{
+    var l=el("button",{class:"btn",text:"Log in / Sign up"});l.onclick=function(){openAuth(false)};w.appendChild(l);
+  }
+}
+
+["all","lost","found"].forEach(function(t){var b=el("button",{class:"tab"+(t===filter?" on":""),text:t==="all"?"All":t==="lost"?"Lost":"Found"});b.onclick=function(){filter=t;[].forEach.call($("tabs").children,function(c){c.classList.remove("on")});b.classList.add("on");render()};$("tabs").appendChild(b)});
+$("q").oninput=function(e){query=e.target.value.toLowerCase();render()};
+
+async function load(){
+  try{items=await api("items");$("status").textContent=""}
+  catch(e){$("status").textContent="Couldn’t load posts: "+e.message}
+  render();
+}
+function render(){
+  var g=$("grid");g.textContent="";
+  var list=items.filter(function(i){
+    if(filter!=="all"&&i.kind!==filter)return false;
+    var s=((i.title||"")+" "+(i.place||"")+" "+(i.description||"")+" "+(i.category||"")).toLowerCase();
+    return !query||s.indexOf(query)>-1;
+  });
+  if(!list.length){g.appendChild(el("div",{class:"empty",text:"Nothing here yet. Be the first to post."}));return}
+  list.forEach(function(i){
+    var ph=el("div",{class:"ph"});
+    if(i.image_file)ph.appendChild(el("img",{src:"/uploads/"+i.image_file,alt:i.title,loading:"lazy"}));else ph.textContent=i.kind==="lost"?"🔍":"📦";
+    var c=el("div",{class:"card"+(i.resolved?" resolved":"")},[ph,el("div",{class:"cb"},[
+      el("span",{class:"badge "+(i.resolved?"done":i.kind),text:i.resolved?"Returned":i.kind}),
+      el("h3",{text:i.title}),el("div",{class:"meta",text:(i.place||"Unknown spot")+" · "+(i.item_date||"")})])]);
+    c.onclick=function(){openItem(i)};g.appendChild(c);
+  });
+}
+
+/* ---------- log in / sign up ---------- */
+function openAuth(isSignup){
+  signup=isSignup;$("aErr").textContent="";
+  $("aTitle").textContent=signup?"Create account":"Log in";$("aGo").textContent=signup?"Sign up":"Log in";
+  $("nameBox").style.display=signup?"block":"none";
+  $("aSwap").textContent=signup?"I already have an account":"I’m new here, create an account";
+  $("authDlg").showModal();
+}
+$("aSwap").onclick=function(){openAuth(!signup)};
+$("aCancel").onclick=function(){$("authDlg").close()};
+$("aGo").onclick=async function(){
+  var b=$("aGo");b.disabled=true;$("aErr").textContent="";
+  try{
+    var d=await api(signup?"signup":"login",{method:"POST",json:{name:$("aName").value,email:$("aEmail").value,password:$("aPw").value}});
+    setSession(d);$("aPw").value="";$("authDlg").close();
+  }catch(e){$("aErr").textContent=e.message}
+  b.disabled=false;
+};
+
+/* ---------- post an item ---------- */
+function openPost(){$("fDate").value=new Date().toISOString().slice(0,10);$("fErr").textContent="";$("postDlg").showModal()}
+$("cancel").onclick=function(){$("postDlg").close()};
+$("fFile").onchange=function(e){var f=e.target.files[0],p=$("prev");if(!f){p.style.display="none";return}p.src=URL.createObjectURL(f);p.style.display="block"};
+$("save").onclick=async function(){
+  var btn=$("save");btn.disabled=true;btn.textContent="Posting…";$("fErr").textContent="";
+  try{
+    var fd=new FormData();
+    fd.append("kind",document.querySelector("input[name=kind]:checked").value);
+    fd.append("title",$("fTitle").value);fd.append("category",$("fCat").value);fd.append("date",$("fDate").value);
+    fd.append("place",$("fPlace").value);fd.append("description",$("fDesc").value);
+    if($("fFile").files[0])fd.append("image",$("fFile").files[0]);
+    await api("items",{method:"POST",body:fd});
+    ["fTitle","fPlace","fDesc","fFile"].forEach(function(k){$(k).value=""});$("prev").style.display="none";
+    $("postDlg").close();load();
+  }catch(e){$("fErr").textContent=e.message}
+  btn.disabled=false;btn.textContent="Post";
+};
+
+/* ---------- item details + private messages ---------- */
+function openItem(i){
+  var b=$("viewBody");b.textContent="";
+  var owner=user&&i.user_id===user.id,active=null;
+  if(i.image_file)b.appendChild(el("img",{class:"big",src:"/uploads/"+i.image_file,alt:i.title}));
+  b.appendChild(el("div",{},[el("span",{class:"badge "+(i.resolved?"done":i.kind),text:i.resolved?"Returned":i.kind})]));
+  b.appendChild(el("h2",{style:"margin:0",text:i.title}));
+  b.appendChild(el("div",{class:"meta",text:[i.category,i.place,i.item_date].filter(Boolean).join(" · ")}));
+  if(i.description)b.appendChild(el("p",{style:"margin:0",text:i.description}));
+  b.appendChild(el("div",{class:"note",text:"Posted by "+(owner?"you":i.poster)}));
+  var errEl=el("div",{class:"err"});function say(t){errEl.textContent=t}
+
+  var msgBox=el("div"),threads=el("div",{class:"row",style:"flex-wrap:wrap"}),box=el("div",{class:"msgs"}),inp=el("input",{placeholder:i.kind==="found"?"Describe what’s yours to claim it…":"I think I found this…",maxlength:"300"}),send=el("button",{class:"btn",text:"Send"});
+  if(!user){
+    var li=el("button",{class:"btn",text:"Log in to message"});li.onclick=function(){$("viewDlg").close();openAuth(false)};b.appendChild(li);
+  }else{
+    b.appendChild(el("h3",{style:"margin:6px 0 0",text:owner?"Messages sent to you":"Message "+i.poster}));
+    b.appendChild(threads);b.appendChild(box);
+    b.appendChild(el("div",{class:"note",text:"Private: only you and the other person can read this. Don’t share phone numbers publicly. Arrange a handover at a campus office or the security desk."}));
+    if(owner)b.appendChild(el("div",{class:"note",id:"replyto"}));
+    b.appendChild(el("div",{class:"row"},[inp,send]));
+  }
+  async function loadMsgs(){
+    if(!user)return;
+    try{
+      var d=await api("items/"+i.id+"/messages"),ms=d.messages;
+      var mine=function(m){return m.sender_id===user.id};
+      var other=function(m){return mine(m)?m.receiver_id:m.sender_id};
+      var oname=function(m){return mine(m)?m.receiver_name:m.sender_name};
+      var shown=ms;
+      if(owner){
+        var seen={},order=[];
+        ms.forEach(function(m){var o=other(m);if(!seen[o]){seen[o]=oname(m);order.push(o)}});
+        if(active===null&&order.length)active=order[0];
+        threads.textContent="";
+        order.forEach(function(o){var t=el("button",{class:"tab"+(o===active?" on":""),text:seen[o]});t.onclick=function(){active=o;loadMsgs()};threads.appendChild(t)});
+        shown=ms.filter(function(m){return other(m)===active});
+        var rt=document.getElementById("replyto");if(rt)rt.textContent=active?"Replying to "+seen[active]:"";
+      }
+      box.textContent="";
+      if(!shown.length)box.appendChild(el("div",{class:"note",text:"No messages yet."}));
+      shown.forEach(function(m){box.appendChild(el("div",{class:"m"+(mine(m)?" me":"")},[el("b",{text:mine(m)?"You":m.sender_name}),document.createTextNode(m.body)]))});
+      box.scrollTop=box.scrollHeight;
+    }catch(e){say(e.message)}
+  }
+  send.onclick=async function(){
+    var t=inp.value.trim();if(!t)return;say("");send.disabled=true;
+    try{await api("items/"+i.id+"/messages",{method:"POST",json:{body:t,to:active}});inp.value="";await loadMsgs()}
+    catch(e){say(e.message)}
+    send.disabled=false;
+  };
+  inp.onkeydown=function(e){if(e.key==="Enter")send.click()};
+
+  b.appendChild(errEl);
+  var acts=el("div",{class:"row"});
+  if(owner){
+    var r=el("button",{class:"btn ghost",text:i.resolved?"Reopen":"Mark as returned"});
+    r.onclick=async function(){say("");try{await api("items/"+i.id+"/resolve",{method:"POST"});$("viewDlg").close();load()}catch(e){say(e.message)}};
+    var d=el("button",{class:"btn ghost",text:"Delete post"});
+    d.onclick=async function(){say("");if(!d.dataset.sure){d.dataset.sure="1";d.textContent="Tap again to delete";return}
+      try{await api("items/"+i.id,{method:"DELETE"});$("viewDlg").close();load()}catch(e){say(e.message)}};
+    acts.appendChild(r);acts.appendChild(d);
+  }
+  var cl=el("button",{class:"btn ghost",text:"Close"});cl.onclick=function(){$("viewDlg").close()};acts.appendChild(cl);b.appendChild(acts);
+  clearInterval(poll);loadMsgs();poll=setInterval(loadMsgs,5000);
+  $("viewDlg").showModal();
+}
+$("viewDlg").addEventListener("close",function(){clearInterval(poll)});
+
+renderWho();load();setInterval(function(){if(!$("viewDlg").open&&!$("postDlg").open&&!$("authDlg").open)load()},15000);
+</script>
+</body>
+</html>
