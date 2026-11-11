@@ -137,7 +137,7 @@ function render(){
   if(!list.length){g.appendChild(el("div",{class:"empty",text:"Nothing here yet. Be the first to post."}));return}
   list.forEach(function(i){
     var ph=el("div",{class:"ph"});
-    if(i.image_file)ph.appendChild(el("img",{src:"/uploads/"+i.image_file,alt:i.title,loading:"lazy"}));else ph.textContent=i.kind==="lost"?"🔍":"📦";
+    if(i.has_image)ph.appendChild(el("img",{src:"/api/items/"+i.id+"/image",alt:i.title,loading:"lazy"}));else ph.textContent=i.kind==="lost"?"🔍":"📦";
     var c=el("div",{class:"card"+(i.resolved?" resolved":"")},[ph,el("div",{class:"cb"},[
       el("span",{class:"badge "+(i.resolved?"done":i.kind),text:i.resolved?"Returned":i.kind}),
       el("h3",{text:i.title}),el("div",{class:"meta",text:(i.place||"Unknown spot")+" · "+(i.item_date||"")})])]);
@@ -164,6 +164,21 @@ $("aGo").onclick=async function(){
   b.disabled=false;
 };
 
+/* ---------- shrink photos before upload (keeps the database small) ---------- */
+function shrink(file){
+  return new Promise(function(resolve){
+    var img=new Image(),url=URL.createObjectURL(file);
+    img.onload=function(){
+      var max=1100,sc=Math.min(1,max/Math.max(img.width,img.height)),c=document.createElement("canvas");
+      c.width=Math.round(img.width*sc);c.height=Math.round(img.height*sc);
+      c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+      c.toBlob(function(b){URL.revokeObjectURL(url);resolve(b||file)},"image/jpeg",0.8);
+    };
+    img.onerror=function(){URL.revokeObjectURL(url);resolve(file)};
+    img.src=url;
+  });
+}
+
 /* ---------- post an item ---------- */
 function openPost(){$("fDate").value=new Date().toISOString().slice(0,10);$("fErr").textContent="";$("postDlg").showModal()}
 $("cancel").onclick=function(){$("postDlg").close()};
@@ -175,7 +190,7 @@ $("save").onclick=async function(){
     fd.append("kind",document.querySelector("input[name=kind]:checked").value);
     fd.append("title",$("fTitle").value);fd.append("category",$("fCat").value);fd.append("date",$("fDate").value);
     fd.append("place",$("fPlace").value);fd.append("description",$("fDesc").value);
-    if($("fFile").files[0])fd.append("image",$("fFile").files[0]);
+    var pf=$("fFile").files[0];if(pf)fd.append("image",await shrink(pf),"photo.jpg");
     await api("items",{method:"POST",body:fd});
     ["fTitle","fPlace","fDesc","fFile"].forEach(function(k){$(k).value=""});$("prev").style.display="none";
     $("postDlg").close();load();
@@ -187,7 +202,7 @@ $("save").onclick=async function(){
 function openItem(i){
   var b=$("viewBody");b.textContent="";
   var owner=user&&i.user_id===user.id,active=null;
-  if(i.image_file)b.appendChild(el("img",{class:"big",src:"/uploads/"+i.image_file,alt:i.title}));
+  if(i.has_image)b.appendChild(el("img",{class:"big",src:"/api/items/"+i.id+"/image",alt:i.title}));
   b.appendChild(el("div",{},[el("span",{class:"badge "+(i.resolved?"done":i.kind),text:i.resolved?"Returned":i.kind})]));
   b.appendChild(el("h2",{style:"margin:0",text:i.title}));
   b.appendChild(el("div",{class:"meta",text:[i.category,i.place,i.item_date].filter(Boolean).join(" · ")}));

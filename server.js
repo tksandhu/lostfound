@@ -4,34 +4,34 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
-const crypto = require('crypto');
 
-try { process.loadEnvFile(path.join(__dirname, 'config.txt')); }
-catch (e) { console.error('Could not read config.txt:', e.message); process.exit(1); }
+// Local use: settings come from config.txt. On Vercel: settings come from Environment Variables.
+try { process.loadEnvFile(path.join(__dirname, 'config.txt')); } catch (e) { /* no config.txt: use environment variables */ }
 
-const { DB_HOST = 'localhost', DB_USER = 'root', DB_PASSWORD = '', DB_NAME = 'lostfound', JWT_SECRET, PORT = 3000 } = process.env;
-if (!JWT_SECRET) { console.error('config.txt needs a JWT_SECRET line'); process.exit(1); }
-if (DB_PASSWORD === 'PUT_YOUR_MYSQL_PASSWORD_HERE') { console.error('Open config.txt and replace PUT_YOUR_MYSQL_PASSWORD_HERE with your MySQL password'); process.exit(1); }
+const { DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_PORT = 3306, DB_SSL, JWT_SECRET, PORT = 3000 } = process.env;
+const missing = ['DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME', 'JWT_SECRET'].filter(k => !process.env[k]);
+if (missing.length) console.error('Missing settings: ' + missing.join(', '));
+if (DB_PASSWORD === 'PUT_YOUR_MYSQL_PASSWORD_HERE') missing.push('DB_PASSWORD (still the placeholder in config.txt)');
 
-const pool = mysql.createPool({ host: DB_HOST, user: DB_USER, password: DB_PASSWORD, database: DB_NAME, connectionLimit: 5, dateStrings: true });
+const pool = mysql.createPool({
+  host: DB_HOST, port: Number(DB_PORT), user: DB_USER, password: DB_PASSWORD, database: DB_NAME,
+  connectionLimit: 3, enableKeepAlive: true, dateStrings: true,
+  ssl: DB_SSL === 'true' ? { minVersion: 'TLSv1.2', rejectUnauthorized: true } : undefined
+});
 
 const app = express();
 app.use(express.json({ limit: '20kb' }));
+app.use(express.static(path.join(__dirname, 'public'))); // used locally; Vercel serves /public itself
 
-const upDir = path.join(__dirname, 'uploads');
-fs.mkdirSync(upDir, { recursive: true });
-app.use('/uploads', express.static(upDir));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use('/api', (req, res, next) =>
+  missing.length ? res.status(500).json({ error: 'Server is missing settings: ' + missing.join(', ') }) : next());
 
-const EXT = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif' };
+// Photos are kept in memory briefly, then stored inside MySQL (no folders needed).
+const TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: upDir,
-    filename: (req, f, cb) => cb(null, crypto.randomBytes(12).toString('hex') + EXT[f.mimetype])
-  }),
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (req, f, cb) => EXT[f.mimetype] ? cb(null, true) : cb(new Error('Only JPG, PNG, WEBP or GIF images are allowed'))
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 3 * 1024 * 1024 },
+  fileFilter: (req, f, cb) => TYPES.includes(f.mimetype) ? cb(null, true) : cb(new Error('Only JPG, PNG, WEBP or GIF images are allowed'))
 });
 
 const wrap = fn => (req, res, next) => fn(req, res, next).catch(next);
@@ -72,24 +72,29 @@ app.post('/api/login', wrap(async (req, res) => {
 app.get('/api/items', wrap(async (req, res) => {
   const [rows] = await pool.query(
     `SELECT i.id, i.user_id, u.name AS poster, i.kind, i.title, i.category, i.place, i.item_date,
-            i.description, i.image_file, i.resolved, i.created_at
+            i.description, (i.image_data IS NOT NULL) AS has_image, i.resolved, i.created_at
      FROM items i JOIN users u ON u.id = i.user_id
      ORDER BY i.resolved, i.created_at DESC LIMIT 200`);
   res.json(rows);
 }));
 
+app.get('/api/items/:id/image', wrap(async (req, res) => {
+  const [rows] = await pool.execute('SELECT image_data, image_type FROM items WHERE id = ?', [req.params.id]);
+  if (!rows[0] || !rows[0].image_data) return res.status(404).end();
+  res.set('Content-Type', rows[0].image_type || 'image/jpeg');
+  res.set('Cache-Control', 'public, max-age=86400');
+  res.send(rows[0].image_data);
+}));
+
 app.post('/api/items', auth, upload.single('image'), wrap(async (req, res) => {
   const b = req.body;
   const title = String(b.title || '').trim().slice(0, 80);
-  if (!['lost', 'found'].includes(b.kind) || !title) {
-    if (req.file) fs.unlink(req.file.path, () => {});
-    return res.status(400).json({ error: 'Choose lost or found, and enter what the item is' });
-  }
+  if (!['lost', 'found'].includes(b.kind) || !title) return res.status(400).json({ error: 'Choose lost or found, and enter what the item is' });
   const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || '') ? b.date : null;
   await pool.execute(
-    'INSERT INTO items (user_id, kind, title, category, place, item_date, description, image_file) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO items (user_id, kind, title, category, place, item_date, description, image_data, image_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
     [req.user.id, b.kind, title, String(b.category || '').slice(0, 40), String(b.place || '').trim().slice(0, 80), date,
-     String(b.description || '').trim().slice(0, 400), req.file ? req.file.filename : null]);
+     String(b.description || '').trim().slice(0, 400), req.file ? req.file.buffer : null, req.file ? req.file.mimetype : null]);
   res.json({ ok: true });
 }));
 
@@ -100,10 +105,10 @@ app.post('/api/items/:id/resolve', auth, wrap(async (req, res) => {
 }));
 
 app.delete('/api/items/:id', auth, wrap(async (req, res) => {
-  const [rows] = await pool.execute('SELECT image_file FROM items WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
+  const [rows] = await pool.execute('SELECT id FROM items WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
   if (!rows[0]) return res.status(403).json({ error: 'Only the person who posted this can delete it' });
+  await pool.execute('DELETE FROM messages WHERE item_id = ?', [req.params.id]);
   await pool.execute('DELETE FROM items WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
-  if (rows[0].image_file) fs.unlink(path.join(upDir, path.basename(rows[0].image_file)), () => {});
   res.json({ ok: true });
 }));
 
@@ -127,7 +132,6 @@ app.post('/api/items/:id/messages', auth, wrap(async (req, res) => {
   const me = req.user.id;
   let to;
   if (irows[0].user_id === me) {
-    // the poster can only reply to someone who already wrote to them about this item
     to = parseInt(req.body.to, 10);
     const [chk] = await pool.execute('SELECT 1 FROM messages WHERE item_id = ? AND sender_id = ? AND receiver_id = ? LIMIT 1', [req.params.id, to, me]);
     if (!to || !chk[0]) return res.status(400).json({ error: 'Choose who you are replying to' });
@@ -139,10 +143,13 @@ app.post('/api/items/:id/messages', auth, wrap(async (req, res) => {
 }));
 
 app.use((err, req, res, next) => {
-  if (err instanceof multer.MulterError) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Photo is too big (max 5 MB)' : err.message });
+  if (err instanceof multer.MulterError) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Photo is too big' : err.message });
   if (err.message && err.message.startsWith('Only JPG')) return res.status(400).json({ error: err.message });
   console.error(err);
   res.status(500).json({ error: 'Something went wrong on the server' });
 });
 
-app.listen(PORT, '0.0.0.0', () => console.log('Lost & Found is running: open http://localhost:' + PORT));
+module.exports = app;
+if (require.main === module) {
+  app.listen(PORT, '0.0.0.0', () => console.log('Lost & Found is running: open http://localhost:' + PORT));
+}
